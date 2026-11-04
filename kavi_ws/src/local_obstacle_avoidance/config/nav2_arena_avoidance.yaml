@@ -1,0 +1,11 @@
+yolo_obstacle_detector:
+  ros__parameters:
+    conf_threshold: 0.35
+    image_topic: "/zed/zed_node/rgb/color/rect/image"
+    depth_topic: "/zed/zed_node/depth/depth_registered"
+    camera_info_topic: "/zed/zed_node/rgb/color/rect/image/camera_info"
+    camera_frame: "zed_left_camera_optical_frame"
+    min_detection_depth: 0.2
+    max_detection_depth: 6.0
+    mask_sample_step: 4
+    safe_distance: 0.8

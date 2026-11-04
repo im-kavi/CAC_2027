@@ -1,0 +1,88 @@
+# arena_map (ament_python)
+
+Static NAV2 occupancy map for the **UK Lunabotics Arena** (9 m x 5 m) with
+an RViz2 colored zone-overlay. Built as a ROS 2 `ament_python` package
+using a standard `setup.py` (no CMake).
+
+## Zone dimensions (origin at bottom-left)
+
+| Zone                | Origin (x,y) [m] | Size (W x H) [m] | Overlay colour |
+|---------------------|------------------|------------------|----------------|
+| Starting Zone       | (0.0, 2.5)       | 2.0 x 2.5        | Light green    |
+| Obstacle corridor   | (0.0, 1.5)       | 2.0 x 1.0        | (transparent)  |
+| Construction Zone   | (0.0, 0.0)       | 2.0 x 1.5        | Light blue     |
+| Obstacle Zone       | (2.0, 0.0)       | 5.5 x 5.0        | White          |
+| Excavation Zone     | (7.5, 0.0)       | 1.5 x 5.0        | Light pink     |
+
+Sanity: 2 + 5.5 + 1.5 = **9 m**  ;  2.5 + 1 + 1.5 = **5 m**.
+
+> Obstacles (rocks / craters) are intentionally **not** mapped per the
+> project brief. Only the outer arena perimeter is an occupied wall.
+
+## Package layout (ament_python)
+```
+arena_map/
+├── setup.py                 # ament_python build script (entry point: zone_markers)
+├── package.xml              # ROS 2 package manifest
+├── resource/arena_map       # ament index marker
+├── arena_map/
+│   ├── __init__.py
+│   └── zone_markers.py      # publishes /arena/zones MarkerArray
+├── maps/
+│   ├── arena_map.pgm        # 450x250 px, 0.02 m/px binary PGM (P5)
+│   ├── arena_map.yaml       # nav2_map_server config
+│   ├── arena_map_preview.png
+│   └── gen_map.py           # regenerate PGM & preview
+├── launch/arena_map.launch.py
+├── rviz/arena_map.rviz      # preconfigured for /map + /arena/zones
+└── config/nav2_minimal.yaml
+```
+
+## Build
+
+```bash
+cd ~/zone_ws
+colcon build --packages-select arena_map
+source install/setup.bash
+```
+
+## View in RViz2 (with coloured zones)
+
+```bash
+ros2 launch arena_map arena_map.launch.py
+```
+
+Starts:
+- `nav2_map_server`           (serves `maps/arena_map.yaml` on `/map`)
+- `nav2_lifecycle_manager`   (autostarts the map server)
+- `zone_markers`             (latched `MarkerArray` on `/arena/zones`)
+- `rviz2`                    (Grid + Map + MarkerArray preconfigured)
+
+### Launch arguments
+| Arg          | Default                       | Purpose |
+|--------------|-------------------------------|---------|
+| `map`        | `<pkg>/maps/arena_map.yaml`   | Path to map YAML |
+| `use_rviz`   | `true`                        | Launch RViz2 |
+| `show_zones` | `true`                        | Publish color zone overlay |
+| `rviz_config`| `<pkg>/rviz/arena_map.rviz`   | RViz2 config file |
+
+Examples:
+```bash
+ros2 launch arena_map arena_map.launch.py show_zones:=false   # occupancy only
+ros2 launch arena_map arena_map.launch.py use_rviz:=false     # headless
+ros2 run arena_map zone_markers                                # markers alone
+```
+
+### Manual RViz2 setup (if not using the bundled launch)
+1. Set **Fixed Frame** to `map`.
+2. Add **Map** display → Topic `/map`, Durability *Transient Local*, Alpha ~0.6.
+3. Add **MarkerArray** display → Topic `/arena/zones`, Durability *Transient Local*.
+4. Switch to **TopDownOrtho** view aimed at (4.5, 2.5) with Scale ≈ 12 m.
+5. Toggle marker namespaces `zones`, `zone_outlines`, `zone_labels` to taste.
+
+## Using with a full NAV2 stack
+Point `map_server.yaml_filename` at
+`$(find-pkg-share arena_map)/maps/arena_map.yaml` and bring up the
+`zone_markers` node alongside NAV2 for visual context. A starter
+parameter file is provided in `config/nav2_minimal.yaml` — adjust
+`robot_radius` (0.50 m by default) to your rover's footprint.

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -e
+
+echo "=========================================================="
+echo "ZED SDK & ROS 2 Environment Setup for Ubuntu 24.04 (Jazzy)"
+echo "=========================================================="
+
+CURRENT_KERNEL=$(uname -r)
+echo "[1/4] Current kernel: ${CURRENT_KERNEL}"
+
+echo "[2/4] Checking NVIDIA Driver kernel module..."
+if ! nvidia-smi >/dev/null 2>&1; then
+    echo "NVIDIA driver is not currently communicating with the kernel."
+    echo "Installing kernel module matching current kernel (${CURRENT_KERNEL})..."
+    sudo apt update
+    sudo apt install -y "linux-modules-nvidia-595-open-${CURRENT_KERNEL}" \
+                        linux-modules-nvidia-595-open-generic-hwe-24.04 \
+                        ros-jazzy-nmea-msgs
+    echo "Reloading NVIDIA kernel module..."
+    sudo modprobe nvidia || echo "Note: A system reboot may be required if modprobe is blocked."
+else
+    echo "NVIDIA driver is working properly:"
+    nvidia-smi
+    sudo apt update && sudo apt install -y ros-jazzy-nmea-msgs
+fi
+
+echo "[3/4] Checking CUDA Toolkit..."
+if ! command -v nvcc >/dev/null 2>&1; then
+    echo "CUDA compiler (nvcc) not found. Installing nvidia-cuda-toolkit..."
+    sudo apt install -y nvidia-cuda-toolkit
+else
+    echo "CUDA toolkit found: $(nvcc --version | grep release)"
+fi
+
+echo "=========================================================="
+echo "Prerequisites step complete!"
+echo "If the NVIDIA driver was just installed, please verify with 'nvidia-smi'."
+echo "Then proceed with './install_zed_sdk.sh'."
+echo "=========================================================="

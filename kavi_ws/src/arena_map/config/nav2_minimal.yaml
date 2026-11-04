@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+from visualization_msgs.msg import Marker, MarkerArray
+from nav_msgs.msg import OccupancyGrid
+from std_msgs.msg import ColorRGBA
+from geometry_msgs.msg import Point, Quaternion, Vector3
+
+
+# ---------------------------------------------------------------------------
+# Zone definitions (exact dimensions taken from arena diagram)
+# (x_bl, y_bl, width, height, (R,G,B,A), label_text)
+# Origin: bottom-left corner of the arena, +x right, +y up, metres.
+# Total arena: 9 m x 5 m
+#   Starting Zone     2 m x 2.5 m  @ (0.0, 2.5)
+#   Obstacle corridor 2 m x 1.0 m  @ (0.0, 1.5)  (part of Obstacle Zone)
+#   Construction Zone 2 m x 1.5 m  @ (0.0, 0.0)
+#   Obstacle Zone     5.5 m x 5 m  @ (2.0, 0.0)
+#   Excavation Zone   1.5 m x 5 m  @ (7.5, 0.0)
+# ---------------------------------------------------------------------------
+ZONES = [
+    (0.0, 2.5, 2.0, 2.5, ( 80, 210,  80, 0.40), "Starting Zone"),
+    (0.0, 1.5, 2.0, 1.0, (200, 200, 200, 0.00), ""),  # corridor (no fill/label
+    (0.0, 0.0, 2.0, 1.5, (100, 140, 210, 0.45), "Construction Zone"),
+    (2.0, 0.0, 5.5, 5.0, (255, 255, 255, 0.00), "Obstacle Zone"),
+    (7.5, 0.0, 1.5, 5.0, (240, 110, 160, 0.45), "Excavation Zone"),
+    (0.375, 0.3, 1.25, 0.9, (255, 0, 0, 0.5), "Berm Zone"),
+]
+
+
+def rgba(t):
+    r, g, b, a = t
+    return ColorRGBA(r=r/255.0, g=g/255.0, b=b/255.0, a=a)
+
+
+class ZoneMarkerPublisher(Node):
+    def __init__(self):
+        super().__init__('zone_markers')
+
+        qos = QoSProfile(depth=1,
+                         durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                         reliability=ReliabilityPolicy.RELIABLE)
+        self.pub_ = self.create_publisher(MarkerArray, '/arena/zones', qos)
+        self.frame_id_ = 'map'
+
+        # Inherit frame id from /map if it is published with a custom frame
+        self.map_sub_ = self.create_subscription(
+            OccupancyGrid, '/map', self._map_cb,
+            QoSProfile(depth=1,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                       reliability=ReliabilityPolicy.RELIABLE))
+
+        self.timer_ = self.create_timer(1.0, self._publish)
+        self.done_once_ = False
+
+    # ---------------------------------------------------------------------
+    def _map_cb(self, msg: OccupancyGrid):
+        if msg.header.frame_id:
+            self.frame_id_ = msg.header.frame_id
+
+    # ---------------------------------------------------------------------
+    def _publish(self):
+        arr = MarkerArray()
+
+        # Wipe previous markers (in case we re-publish)
+        wipe = Marker()
+        wipe.header.frame_id = self.frame_id_
+        wipe.header.stamp = self.get_clock().now().to_msg()
+        wipe.action = Marker.DELETEALL
+        arr.markers.append(wipe)
+
+        z = 0.005  # lifts fills slightly above the map plane for RViz rendering
+        text_z = 0.20
+
+        for i, (x, y, w, h, col, name) in enumerate(ZONES):
+            cx, cy = x + w/2.0, y + h/2.0
+            now = self.get_clock().now().to_msg()
+            frame = self.frame_id_
+
+            # --- filled rectangle ---
+            fill = Marker()
+            fill.header.frame_id = frame
+            fill.header.stamp = now
+            fill.ns = "zones"
+            fill.id = i
+            fill.type = Marker.CUBE
+            fill.action = Marker.ADD
+            fill.pose.position.x = cx
+            fill.pose.position.y = cy
+            fill.pose.position.z = z
+            fill.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+            fill.scale = Vector3(x=w, y=h, z=0.005)
+            fill.color = rgba(col)
+            arr.markers.append(fill)
+
+            # --- black outline ---
+            outline = Marker()
+            outline.header.frame_id = frame
+            outline.header.stamp = now
+            outline.ns = "zone_outlines"
+            outline.id = i
+            outline.type = Marker.LINE_STRIP
+            outline.action = Marker.ADD
+            outline.scale = Vector3(x=0.025, y=0.0, z=0.0)
+            outline.color = ColorRGBA(r=0.0, g=0.0, b=0.0, a=0.85)
+            outline.points = [
+                Point(x=x,     y=y,     z=z),
+                Point(x=x + w, y=y,     z=z),
+                Point(x=x + w, y=y + h, z=z),
+                Point(x=x,     y=y + h, z=z),
+                Point(x=x,     y=y,     z=z),
+            ]
+            arr.markers.append(outline)
+
+            # --- text label (skip empty labels, i.e. the corridor) ---
+            if not name:
+                continue
+            txt = Marker()
+            txt.header.frame_id = frame
+            txt.header.stamp = now
+            txt.ns = "zone_labels"
+            txt.id = i
+            txt.type = Marker.TEXT_VIEW_FACING
+            txt.action = Marker.ADD
+            txt.pose.position.x = cx
+            txt.pose.position.y = cy
+            txt.pose.position.z = text_z
+            txt.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+            txt.scale = Vector3(x=0.0, y=0.0, z=min(0.40, 0.28 * h))
+            txt.color = ColorRGBA(r=0.05, g=0.05, b=0.05, a=1.0)
+            txt.text = name
+            arr.markers.append(txt)
+
+        self.pub_.publish(arr)
+        if not self.done_once_:
+            self.get_logger().info(
+                f"Published {len(ZONES)} zone markers on /arena/zones "
+                f"(frame='{self.frame_id_}')")
+            self.done_once_ = True
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = ZoneMarkerPublisher()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

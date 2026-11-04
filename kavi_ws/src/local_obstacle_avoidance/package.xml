@@ -1,0 +1,77 @@
+"""Launch the arena map in RViz2.
+
+Nodes started:
+  * nav2_map_server          -> publishes /map (OccupancyGrid) from arena_map.yaml
+  * nav2_lifecycle_manager   -> autostarts the map_server lifecycle node
+  * zone_markers (pkg node)  -> publishes /arena/zones (MarkerArray) colored overlay
+  * rviz2                    -> opens preconfigured RViz view
+
+Usage:
+  ros2 launch arena_map arena_map.launch.py
+  ros2 launch arena_map arena_map.launch.py show_zones:=false use_rviz:=true
+  ros2 launch arena_map arena_map.launch.py map:=/full/path/to/other.yaml
+"""
+import os
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+
+
+def generate_launch_description():
+    pkg = get_package_share_directory('arena_map')
+
+    return LaunchDescription([
+        DeclareLaunchArgument('map',
+            default_value=os.path.join(pkg, 'maps', 'arena_map.yaml'),
+            description='Full path to the map YAML file'),
+        DeclareLaunchArgument('use_rviz', default_value='true',
+            description='Launch RViz2 to view the map'),
+        DeclareLaunchArgument('show_zones', default_value='true',
+            description='Publish colored zone markers on /arena/zones'),
+        DeclareLaunchArgument('rviz_config',
+            default_value=os.path.join(pkg, 'rviz', 'arena_map.rviz'),
+            description='RViz2 config file path'),
+
+        Node(
+            package='nav2_map_server',
+            executable='map_server',
+            name='map_server',
+            output='screen',
+            parameters=[{
+                'yaml_filename': LaunchConfiguration('map'),
+                'topic_name':    'map',
+                'frame_id':      'map',
+            }],
+        ),
+
+        Node(
+            package='nav2_lifecycle_manager',
+            executable='lifecycle_manager',
+            name='lifecycle_manager_map',
+            output='screen',
+            parameters=[{
+                'autostart':  True,
+                'node_names': ['map_server'],
+            }],
+        ),
+
+        Node(
+            package='arena_map',
+            executable='zone_markers',
+            name='zone_markers',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('show_zones')),
+        ),
+
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            output='screen',
+            arguments=['-d', LaunchConfiguration('rviz_config')],
+            condition=IfCondition(LaunchConfiguration('use_rviz')),
+        ),
+    ])
